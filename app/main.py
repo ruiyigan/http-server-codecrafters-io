@@ -1,5 +1,7 @@
+import argparse
 import socket  # noqa: F401
 import threading
+from pathlib import Path
 
 
 def parse_request(request_data):
@@ -19,35 +21,65 @@ def parse_request(request_data):
     return method, path, version, host, user_agent
 
 
-def handler(client_sock):
+def parse_response(status, content_type, content):
+    header = "HTTP/1.1 "
+    if status == 404:
+        header += "404 Not Found\r\n"
+    else:  # assume 200
+        header += "200 OK\r\n"
+        if content_type:
+            header += "Content-Type: " + content_type + "\r\n"
+        if content:
+            header += "Content-Length: " + str(len(content)) + "\r\n"
+
+    response_string = header + "\r\n"
+    if content:
+        response_string += content
+
+    return response_string.encode("utf-8")
+
+
+def handler(client_sock, directory):
     with client_sock:
         data = client_sock.recv(1024)  # HOW TO: https://realpython.com/python-sockets/
 
         method, path, version, host, user_agent = parse_request(data)
 
         if path == "/":
-            client_sock.sendall(b"HTTP/1.1 200 OK\r\n\r\n")
+            client_sock.sendall(parse_response(200, None, None))
         elif path == "/user-agent":
-            client_sock.sendall(
-                f"HTTP/1.1 200 OK\r\nContent-Type: text/plain\r\nContent-Length: {len(user_agent)}\r\n\r\n{user_agent}".encode(
-                    "utf-8"
+            client_sock.sendall(parse_response(200, "text/plain", user_agent))
+        elif path[:7] == "/files/":
+            file_name = path[7:]
+            file_path = directory + file_name
+            if Path(file_path).is_file():
+                file = open(file_path, "r")
+                file_content = file.read()
+                client_sock.sendall(
+                    parse_response(200, "application/octet-stream", file_content)
                 )
-            )
+            else:
+                client_sock.sendall(parse_response(404, None, None))
+
         else:
             if path[:6] == "/echo/":
                 echo_string = path[6:]
-                client_sock.sendall(
-                    f"HTTP/1.1 200 OK\r\nContent-Type: text/plain\r\nContent-Length: {len(echo_string)}\r\n\r\n{echo_string}".encode(
-                        "utf-8"
-                    )
-                )
+                client_sock.sendall(parse_response(200, "text/plain", echo_string))
             else:
-                client_sock.sendall(
-                    b"HTTP/1.1 404 Not Found\r\n\r\n"
-                )  # Don’t see the \r\n\r\n when decoding b"HTTP/1.1 404 Not Found\r\n\r\n" is that \r\n (carriage return + line feed) is a special sequence used for formatting
+                client_sock.sendall(parse_response(404, None, None))
 
 
 def main():
+    parser = argparse.ArgumentParser(description="A simple HTTP server.")
+    parser.add_argument(
+        "--directory",
+        type=str,
+        required=False,
+        help="Directory where the files are stored.",
+    )
+    args = parser.parse_args()
+    directory = args.directory
+
     server_socket = socket.create_server(
         ("localhost", 4221), reuse_port=True
     )  # HOW TO: https://stackoverflow.com/questions/10114224/how-to-properly-send-http-response-with-python-using-socket-library-only
@@ -56,7 +88,7 @@ def main():
         while True:
             client_sock, client_addr = server_socket.accept()
             threading.Thread(
-                target=handler, args=(client_sock,), daemon=True
+                target=handler, args=(client_sock, directory), daemon=True
             ).start()  # Use this to test https://github.com/hatoo/oha
     finally:
         server_socket.close()
