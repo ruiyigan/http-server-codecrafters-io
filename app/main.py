@@ -11,20 +11,41 @@ def parse_request(request_data):
 
     host = ""
     user_agent = ""
+    content_type = ""
+    content_length = ""
+    content = ""
 
     for line in lines:
         if "Host:" in line:
             host = line.split()[1]
         if "User-Agent:" in line:
             user_agent = line.split()[1]
+        if "Content-Type" in line:
+            content_type = line.split()[1]
+        if "Content-Length" in line:
+            content_length = line.split()[1]
 
-    return method, path, version, host, user_agent
+    if content_length:
+        content = lines[-1]
+
+    return (
+        method,
+        path,
+        version,
+        host,
+        user_agent,
+        content_type,
+        content_length,
+        content,
+    )
 
 
 def parse_response(status, content_type, content):
     header = "HTTP/1.1 "
     if status == 404:
         header += "404 Not Found\r\n"
+    elif status == 201:
+        header += "201 Created\r\n"
     else:  # assume 200
         header += "200 OK\r\n"
         if content_type:
@@ -43,30 +64,48 @@ def handler(client_sock, directory):
     with client_sock:
         data = client_sock.recv(1024)  # HOW TO: https://realpython.com/python-sockets/
 
-        method, path, version, host, user_agent = parse_request(data)
+        (
+            method,
+            path,
+            version,
+            host,
+            user_agent,
+            content_type,
+            content_length,
+            content,
+        ) = parse_request(data)
 
-        if path == "/":
-            client_sock.sendall(parse_response(200, None, None))
-        elif path == "/user-agent":
-            client_sock.sendall(parse_response(200, "text/plain", user_agent))
-        elif path[:7] == "/files/":
-            file_name = path[7:]
-            file_path = directory + file_name
-            if Path(file_path).is_file():
-                file = open(file_path, "r")
-                file_content = file.read()
-                client_sock.sendall(
-                    parse_response(200, "application/octet-stream", file_content)
-                )
-            else:
-                client_sock.sendall(parse_response(404, None, None))
+        if method == "POST":
+            if path[:7] == "/files/":
+                file_name = path[7:]
+                file_path = directory + file_name
+                with open(file_path, "w") as f:
+                    f.write(content)
+                client_sock.sendall(parse_response(201, None, None))
 
-        else:
-            if path[:6] == "/echo/":
-                echo_string = path[6:]
-                client_sock.sendall(parse_response(200, "text/plain", echo_string))
+        if method == "GET":
+            if path == "/":
+                client_sock.sendall(parse_response(200, None, None))
+            elif path == "/user-agent":
+                client_sock.sendall(parse_response(200, "text/plain", user_agent))
+            elif path[:7] == "/files/":
+                file_name = path[7:]
+                file_path = directory + file_name
+                if Path(file_path).is_file():
+                    file = open(file_path, "r")
+                    file_content = file.read()
+                    client_sock.sendall(
+                        parse_response(200, "application/octet-stream", file_content)
+                    )
+                else:
+                    client_sock.sendall(parse_response(404, None, None))
+
             else:
-                client_sock.sendall(parse_response(404, None, None))
+                if path[:6] == "/echo/":
+                    echo_string = path[6:]
+                    client_sock.sendall(parse_response(200, "text/plain", echo_string))
+                else:
+                    client_sock.sendall(parse_response(404, None, None))
 
 
 def main():
