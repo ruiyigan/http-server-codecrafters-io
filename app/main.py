@@ -18,15 +18,15 @@ def parse_request(request_data):
 
     for line in lines:
         if "Host:" in line:
-            host = line.split()[1]
+            host = line.split(":")[1].strip()
         if "User-Agent:" in line:
-            user_agent = line.split()[1]
+            user_agent = line.split(":")[1].strip()
         if "Content-Type" in line:
-            content_type = line.split()[1]
+            content_type = line.split(":")[1].strip()
         if "Content-Length" in line:
-            content_length = line.split()[1]
+            content_length = line.split(":")[1].strip()
         if "Accept-Encoding" in line:
-            accept_encoding = line.split()[1]
+            accept_encoding = line.split(":")[1].strip()
 
     if content_length:
         content = lines[-1]
@@ -49,7 +49,7 @@ def parse_response(
     status: int,
     content_type: str = None,
     content: str = None,
-    accept_encoding: str = None
+    accept_encoding: bool = False
 ) -> bytes:
     header = "HTTP/1.1 "
     if status == 404:
@@ -58,7 +58,7 @@ def parse_response(
         header += "201 Created\r\n"
     else:  # assume 200
         header += "200 OK\r\n"
-        if accept_encoding == "gzip":
+        if accept_encoding:
             header += "Content-Encoding: gzip" + "\r\n"
         if content_type:
             header += "Content-Type: " + content_type + "\r\n"
@@ -124,12 +124,13 @@ def handler(client_sock, directory):
             else:
                 if path[:6] == "/echo/":
                     echo_string = path[6:]
+                    encodings = [x.strip() for x in accept_encoding.split(",")]
                     client_sock.sendall(
                         parse_response(
                             status=200,
                             content_type="text/plain",
                             content=echo_string,
-                            accept_encoding=accept_encoding,
+                            accept_encoding="gzip" in encodings,
                         )
                     )
                 else:
