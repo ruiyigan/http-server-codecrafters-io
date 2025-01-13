@@ -1,5 +1,6 @@
 import argparse
-import socket  # noqa: F401
+import gzip
+import socket
 import threading
 from pathlib import Path
 
@@ -60,6 +61,7 @@ def parse_response(
         header += "200 OK\r\n"
         if accept_encoding:
             header += "Content-Encoding: gzip" + "\r\n"
+            content = gzip.compress(content.encode("utf-8"))
         if content_type:
             header += "Content-Type: " + content_type + "\r\n"
         if content:
@@ -67,6 +69,9 @@ def parse_response(
 
     response_string = header + "\r\n"
     if content:
+        if accept_encoding:
+            response_string = response_string.encode("utf-8") + content
+            return response_string
         response_string += content
 
     return response_string.encode("utf-8")
