@@ -14,6 +14,7 @@ def parse_request(request_data):
     content_type = ""
     content_length = ""
     content = ""
+    accept_encoding = ""
 
     for line in lines:
         if "Host:" in line:
@@ -24,6 +25,8 @@ def parse_request(request_data):
             content_type = line.split()[1]
         if "Content-Length" in line:
             content_length = line.split()[1]
+        if "Accept-Encoding" in line:
+            accept_encoding = line.split()[1]
 
     if content_length:
         content = lines[-1]
@@ -37,10 +40,17 @@ def parse_request(request_data):
         content_type,
         content_length,
         content,
+        accept_encoding,
     )
 
 
-def parse_response(status, content_type, content):
+def parse_response(
+    *,
+    status: int,
+    content_type: str = None,
+    content: str = None,
+    accept_encoding: str = None
+) -> bytes:
     header = "HTTP/1.1 "
     if status == 404:
         header += "404 Not Found\r\n"
@@ -48,6 +58,8 @@ def parse_response(status, content_type, content):
         header += "201 Created\r\n"
     else:  # assume 200
         header += "200 OK\r\n"
+        if accept_encoding == "gzip":
+            header += "Content-Encoding: gzip" + "\r\n"
         if content_type:
             header += "Content-Type: " + content_type + "\r\n"
         if content:
@@ -73,6 +85,7 @@ def handler(client_sock, directory):
             content_type,
             content_length,
             content,
+            accept_encoding,
         ) = parse_request(data)
 
         if method == "POST":
@@ -81,13 +94,17 @@ def handler(client_sock, directory):
                 file_path = directory + file_name
                 with open(file_path, "w") as f:
                     f.write(content)
-                client_sock.sendall(parse_response(201, None, None))
+                client_sock.sendall(parse_response(status=201))
 
         if method == "GET":
             if path == "/":
-                client_sock.sendall(parse_response(200, None, None))
+                client_sock.sendall(parse_response(status=200))
             elif path == "/user-agent":
-                client_sock.sendall(parse_response(200, "text/plain", user_agent))
+                client_sock.sendall(
+                    parse_response(
+                        status=200, content_type="text/plain", content=user_agent
+                    )
+                )
             elif path[:7] == "/files/":
                 file_name = path[7:]
                 file_path = directory + file_name
@@ -95,17 +112,28 @@ def handler(client_sock, directory):
                     file = open(file_path, "r")
                     file_content = file.read()
                     client_sock.sendall(
-                        parse_response(200, "application/octet-stream", file_content)
+                        parse_response(
+                            status=200,
+                            content_type="application/octet-stream",
+                            content=file_content,
+                        )
                     )
                 else:
-                    client_sock.sendall(parse_response(404, None, None))
+                    client_sock.sendall(parse_response(status=404))
 
             else:
                 if path[:6] == "/echo/":
                     echo_string = path[6:]
-                    client_sock.sendall(parse_response(200, "text/plain", echo_string))
+                    client_sock.sendall(
+                        parse_response(
+                            status=200,
+                            content_type="text/plain",
+                            content=echo_string,
+                            accept_encoding=accept_encoding,
+                        )
+                    )
                 else:
-                    client_sock.sendall(parse_response(404, None, None))
+                    client_sock.sendall(parse_response(status=404))
 
 
 def main():
